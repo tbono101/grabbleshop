@@ -63,7 +63,7 @@ app.use('/api/shipping', shippingRoutes);
 // Serve React frontend in production
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST));
-  app.get('*', (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
+  app.get('/{*path}', (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
 } else {
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 }
