@@ -3,6 +3,12 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST = path.join(__dirname, '../frontend/dist');
 
 import { runMigrations } from './src/models/schema.js';
 
@@ -23,8 +29,13 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(helmet());
+const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',');
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    // Allow same-origin requests (no Origin header) and listed origins
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(morgan('dev'));
@@ -49,7 +60,13 @@ app.use('/api/orders',   orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/shipping', shippingRoutes);
 
-app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+// Serve React frontend in production
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST));
+  app.get('*', (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
+} else {
+  app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+}
 
 app.use((err, _req, res, _next) => {
   console.error(err.stack);
