@@ -1,0 +1,12 @@
+import api from './api.js';
+export const listSellers       = (params) => api.get('/sellers', { params });
+export const getSeller         = (id)     => api.get(`/sellers/${id}`);
+export const getSellerReviews  = (id, p)  => api.get(`/sellers/${id}/reviews`, { params: p });
+export const getMyStore        = ()       => api.get('/sellers/me/store');
+export const createSeller      = (data)   => api.post('/sellers', data);
+export const updateSeller      = (data)   => api.patch('/sellers/me/store', data);
+export const followSeller      = (id)     => api.post(`/sellers/${id}/follow`);
+export const unfollowSeller    = (id)     => api.delete(`/sellers/${id}/follow`);
+export const stripeOnboard     = ()       => api.post('/sellers/me/stripe/onboard');
+export const stripeStatus      = ()       => api.get('/sellers/me/stripe/status');
+export const stripeDashboard   = ()       => api.get('/payments/seller/dashboard');

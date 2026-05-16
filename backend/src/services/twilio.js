@@ -1,9 +1,17 @@
 import twilio from 'twilio';
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+let _client;
+const getClient = () => (_client ??= twilio(
+  process.env.TWILIO_ACCOUNT_SID || 'AC_placeholder',
+  process.env.TWILIO_AUTH_TOKEN  || 'placeholder'
+));
 
 export async function sendSms(to, body) {
-  return client.messages.create({ from: process.env.TWILIO_PHONE_NUMBER, to, body });
+  return getClient().messages.create({
+    from: process.env.TWILIO_PHONE_NUMBER,
+    to,
+    body,
+  });
 }
 
-export default client;
+export default new Proxy({}, { get(_, p) { return getClient()[p]; } });

@@ -1,0 +1,10 @@
+import api from './api.js';
+export const listEvents       = (params) => api.get('/events', { params });
+export const getEvent         = (id)     => api.get(`/events/${id}`);
+export const getEventListings = (id)     => api.get(`/events/${id}/listings`);
+export const createEvent      = (data)   => api.post('/events', data);
+export const updateEvent      = (id, data) => api.patch(`/events/${id}`, data);
+export const deleteEvent      = (id)     => api.delete(`/events/${id}`);
+export const startEvent       = (id)     => api.post(`/events/${id}/start`);
+export const endEvent         = (id)     => api.post(`/events/${id}/end`);
+export const cancelEvent      = (id)     => api.post(`/events/${id}/cancel`);

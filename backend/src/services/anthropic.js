@@ -1,9 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _client;
+const getClient = () => (_client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' }));
 
 export async function generateProductDescription(productName, details) {
-  const msg = await client.messages.create({
+  const msg = await getClient().messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 512,
     messages: [
@@ -16,4 +17,4 @@ export async function generateProductDescription(productName, details) {
   return msg.content[0].text;
 }
 
-export default client;
+export default new Proxy({}, { get(_, p) { return getClient()[p]; } });

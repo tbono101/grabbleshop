@@ -1,9 +1,10 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _client;
+const getResend = () => (_client ??= new Resend(process.env.RESEND_API_KEY || 're_placeholder'));
 
 export async function sendOrderConfirmation({ to, orderNumber, items, total }) {
-  return resend.emails.send({
+  return getResend().emails.send({
     from: 'GrabbleShop <orders@grabbleshop.com>',
     to,
     subject: `Order #${orderNumber} confirmed — GrabbleShop`,
@@ -11,4 +12,4 @@ export async function sendOrderConfirmation({ to, orderNumber, items, total }) {
   });
 }
 
-export default resend;
+export default new Proxy({}, { get(_, p) { return getResend()[p]; } });
