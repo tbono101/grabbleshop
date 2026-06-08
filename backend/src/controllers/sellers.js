@@ -64,10 +64,12 @@ export async function createSeller(req, res) {
     [id, req.user.sub, shopName, bio || null, instagramHandle || null, tiktokHandle || null]
   );
 
-  await query(
-    "UPDATE users SET role = 'seller', updated_at = NOW() WHERE id = $1",
-    [req.user.sub]
-  );
+  if (!['admin', 'super_admin'].includes(req.user.role)) {
+    await query(
+      "UPDATE users SET role = 'seller', updated_at = NOW() WHERE id = $1",
+      [req.user.sub]
+    );
+  }
 
   res.status(201).json({ data: seller });
 }

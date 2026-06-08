@@ -13,7 +13,7 @@ export function requireAuth(req, res, next) {
 }
 
 export function requireSeller(req, res, next) {
-  if (req.user?.role !== 'seller' && req.user?.role !== 'admin') {
+  if (!['seller', 'admin', 'super_admin'].includes(req.user?.role)) {
     return res.status(403).json({ error: 'Seller account required' });
   }
   next();
