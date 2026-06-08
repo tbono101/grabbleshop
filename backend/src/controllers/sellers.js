@@ -107,8 +107,23 @@ export async function updateSeller(req, res) {
 }
 
 export async function createStripeOnboardingLink(req, res) {
-  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
-  if (!seller) return res.status(404).json({ error: 'Seller account not found' });
+  let seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
+
+  if (!seller) {
+    const user = await queryOne('SELECT first_name, last_name FROM users WHERE id = $1', [req.user.sub]);
+    const base = user?.first_name
+      ? `${user.first_name}'s Shop`
+      : (req.user.email?.split('@')[0] || 'My Shop');
+
+    let shopName = base;
+    const taken = await queryOne('SELECT id FROM sellers WHERE shop_name = $1', [shopName]);
+    if (taken) shopName = `${base} ${Date.now().toString().slice(-5)}`;
+
+    seller = await queryOne(
+      `INSERT INTO sellers (id, user_id, shop_name) VALUES ($1, $2, $3) RETURNING *`,
+      [uuid(), req.user.sub, shopName]
+    );
+  }
 
   const origin = (process.env.CLIENT_ORIGIN || '').split(',')[0].trim()
     || `${req.protocol}://${req.get('host')}`;
