@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Button from '../components/ui/Button.jsx';
 import Input from '../components/ui/Input.jsx';
@@ -12,14 +12,29 @@ export default function RegisterPage() {
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const errorTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(errorTimer.current), []);
+
+  function showError(msg) {
+    setError(msg);
+    clearTimeout(errorTimer.current);
+    errorTimer.current = setTimeout(() => setError(''), 5000);
+  }
 
   function set(key) {
-    return e => setForm(f => ({ ...f, [key]: e.target.value }));
+    return e => {
+      setForm(f => ({ ...f, [key]: e.target.value }));
+      if (error) {
+        setError('');
+        clearTimeout(errorTimer.current);
+      }
+    };
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (form.password.length < 8) return setError('Password must be at least 8 characters.');
+    if (form.password.length < 8) return showError('Password must be at least 8 characters.');
     setError('');
     setLoading(true);
     try {
@@ -30,7 +45,7 @@ export default function RegisterPage() {
       navigate('/');
     } catch (err) {
       const msgs = err.response?.data?.errors;
-      setError(msgs ? msgs.map(e => e.msg).join(', ') : err.response?.data?.error || 'Registration failed.');
+      showError(msgs ? msgs.map(e => e.msg).join(', ') : err.response?.data?.error || 'Registration failed.');
     } finally {
       setLoading(false);
     }
