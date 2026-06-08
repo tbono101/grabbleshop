@@ -100,6 +100,10 @@ export async function createStripeOnboardingLink(req, res) {
   const seller = db.prepare('SELECT * FROM sellers WHERE user_id = ?').get(req.user.sub);
   if (!seller) return res.status(404).json({ error: 'Seller account not found' });
 
+  // Derive base URL from the request when CLIENT_ORIGIN is not set (e.g. same-origin Railway deploys)
+  const origin = (process.env.CLIENT_ORIGIN || '').split(',')[0].trim()
+    || `${req.protocol}://${req.get('host')}`;
+
   let accountId = seller.stripe_account_id;
 
   if (!accountId) {
@@ -113,8 +117,8 @@ export async function createStripeOnboardingLink(req, res) {
 
   const link = await stripe.accountLinks.create({
     account: accountId,
-    refresh_url: `${process.env.CLIENT_ORIGIN}/dashboard/onboarding?refresh=true`,
-    return_url: `${process.env.CLIENT_ORIGIN}/dashboard/onboarding?success=true`,
+    refresh_url: `${origin}/dashboard/onboarding?refresh=true`,
+    return_url:  `${origin}/dashboard/onboarding?success=true`,
     type: 'account_onboarding',
   });
 

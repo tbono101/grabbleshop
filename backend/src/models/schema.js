@@ -221,6 +221,14 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_shipments_order     ON shipments(order_id);
     CREATE INDEX IF NOT EXISTS idx_follows_seller      ON follows(seller_id);
     CREATE INDEX IF NOT EXISTS idx_reviews_seller      ON reviews(seller_id);
+
+    CREATE TABLE IF NOT EXISTS platform_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    INSERT OR IGNORE INTO platform_settings (key, value) VALUES ('platform_fee_rate', '0.01');
   `);
 
   console.log('Database migrations complete.');

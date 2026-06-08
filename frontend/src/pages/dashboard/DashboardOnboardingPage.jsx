@@ -12,6 +12,7 @@ export default function DashboardOnboardingPage() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     sellersApi.stripeStatus()
@@ -22,20 +23,24 @@ export default function DashboardOnboardingPage() {
 
   async function startOnboarding() {
     setStarting(true);
+    setError('');
     try {
       const res = await sellersApi.stripeOnboard();
       window.location.href = res.data.data.url;
-    } catch {
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to start Stripe onboarding. Please try again.');
       setStarting(false);
     }
   }
 
   async function openStripeDashboard() {
     setStarting(true);
+    setError('');
     try {
       const res = await sellersApi.stripeDashboard();
       window.location.href = res.data.data.url;
-    } catch {
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to open Stripe dashboard. Please try again.');
       setStarting(false);
     }
   }
@@ -55,6 +60,12 @@ export default function DashboardOnboardingPage() {
         <div className="mb-6 rounded-xl bg-green-500/10 border border-green-500/30 p-4">
           <p className="text-sm font-semibold text-green-300">Onboarding submitted!</p>
           <p className="text-xs text-green-400/80 mt-1">Stripe is reviewing your information. This usually takes a few minutes.</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-6 rounded-xl bg-red-500/10 border border-red-500/30 p-4">
+          <p className="text-sm text-red-300">{error}</p>
         </div>
       )}
 

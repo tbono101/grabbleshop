@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import db from '../models/db.js';
 import stripe from '../services/stripe.js';
+import { getPlatformFeeRate } from './admin.js';
 
 export async function createCheckoutSession(req, res) {
   const { orderId } = req.body;
@@ -52,7 +53,8 @@ export async function createCheckoutSession(req, res) {
     });
   }
 
-  const applicationFee = Math.round(order.total * order.commission_rate);
+  const platformFeeRate = getPlatformFeeRate();
+  const applicationFee = Math.round(order.total * (order.commission_rate + platformFeeRate));
 
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',

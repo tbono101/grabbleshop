@@ -1,5 +1,10 @@
 import db from '../models/db.js';
 
+export function getPlatformFeeRate() {
+  const row = db.prepare("SELECT value FROM platform_settings WHERE key = 'platform_fee_rate'").get();
+  return row ? parseFloat(row.value) : 0.01;
+}
+
 export function listUsers(req, res) {
   const { page = 1, limit = 50, role, search } = req.query;
   const offset = (Number(page) - 1) * Number(limit);
@@ -75,6 +80,29 @@ export function listSellers(req, res) {
   ).all(Number(limit), offset);
 
   res.json({ data: { sellers, total, page: Number(page), limit: Number(limit) } });
+}
+
+export function getSettings(req, res) {
+  const rows = db.prepare('SELECT key, value FROM platform_settings').all();
+  const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+  res.json({ data: { settings } });
+}
+
+export function updateSettings(req, res) {
+  const { platform_fee_rate } = req.body;
+
+  if (platform_fee_rate !== undefined) {
+    const rate = parseFloat(platform_fee_rate);
+    if (isNaN(rate) || rate < 0 || rate > 1) {
+      return res.status(400).json({ error: 'platform_fee_rate must be between 0 and 1' });
+    }
+    db.prepare(
+      "INSERT INTO platform_settings (key, value, updated_at) VALUES ('platform_fee_rate', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).run(String(rate));
+  }
+
+  const rows = db.prepare('SELECT key, value FROM platform_settings').all();
+  res.json({ data: { settings: Object.fromEntries(rows.map(r => [r.key, r.value])) } });
 }
 
 export function getStats(req, res) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as adminApi from '../../services/adminApi.js';
+import useAuthStore from '../../store/authStore.js';
 
 const ROLES = ['buyer', 'seller', 'admin', 'super_admin'];
 
@@ -26,6 +27,9 @@ function roleBadge(role) {
 }
 
 export default function AdminPage() {
+  const { user: currentUser } = useAuthStore();
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
   const [stats, setStats]     = useState(null);
   const [users, setUsers]     = useState([]);
   const [total, setTotal]     = useState(0);
@@ -35,11 +39,27 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
+  // Platform settings (super_admin only)
+  const [feeInput, setFeeInput]       = useState('');
+  const [feeLoading, setFeeLoading]   = useState(false);
+  const [feeSaved, setFeeSaved]       = useState(false);
+  const [feeError, setFeeError]       = useState('');
+
   useEffect(() => {
     adminApi.getStats()
       .then(r => setStats(r.data.data))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    adminApi.getSettings()
+      .then(r => {
+        const rate = parseFloat(r.data.data.settings.platform_fee_rate ?? 0.01);
+        setFeeInput((rate * 100).toFixed(2));
+      })
+      .catch(() => {});
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     setLoading(true);
@@ -70,6 +90,27 @@ export default function AdminPage() {
     }
   };
 
+  const savePlatformFee = async (e) => {
+    e.preventDefault();
+    setFeeError('');
+    setFeeSaved(false);
+    const pct = parseFloat(feeInput);
+    if (isNaN(pct) || pct < 0 || pct > 100) {
+      setFeeError('Enter a value between 0 and 100.');
+      return;
+    }
+    setFeeLoading(true);
+    try {
+      await adminApi.updateSettings({ platform_fee_rate: pct / 100 });
+      setFeeSaved(true);
+      setTimeout(() => setFeeSaved(false), 3000);
+    } catch {
+      setFeeError('Failed to save settings.');
+    } finally {
+      setFeeLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
@@ -82,6 +123,41 @@ export default function AdminPage() {
           {statCard('Orders',         stats.totalOrders)}
           {statCard('Pending Orders', stats.pendingOrders)}
           {statCard('Revenue ($)',    (stats.totalRevenue / 100).toFixed(2))}
+        </div>
+      )}
+
+      {isSuperAdmin && (
+        <div className="bg-white rounded-xl shadow p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-gray-800">Platform Settings</h2>
+          <form onSubmit={savePlatformFee} className="flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-gray-600 font-medium">Platform Fee %</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={feeInput}
+                  onChange={e => setFeeInput(e.target.value)}
+                  className="border rounded-lg px-3 py-1.5 text-sm w-28"
+                />
+                <span className="text-sm text-gray-500">% of each transaction</span>
+              </div>
+              <p className="text-xs text-gray-400">
+                Added to the per-seller commission on every checkout.
+              </p>
+            </div>
+            <button
+              type="submit"
+              disabled={feeLoading}
+              className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-medium"
+            >
+              {feeLoading ? 'Saving…' : 'Save'}
+            </button>
+            {feeSaved && <span className="text-sm text-green-600 font-medium">Saved!</span>}
+            {feeError && <span className="text-sm text-red-600">{feeError}</span>}
+          </form>
         </div>
       )}
 
