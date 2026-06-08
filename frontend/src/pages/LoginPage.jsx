@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import Button from '../components/ui/Button.jsx';
 import Input from '../components/ui/Input.jsx';
@@ -14,6 +14,23 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const errorTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(errorTimer.current), []);
+
+  function showError(msg) {
+    setError(msg);
+    clearTimeout(errorTimer.current);
+    errorTimer.current = setTimeout(() => setError(''), 5000);
+  }
+
+  function handleChange(field, value) {
+    setForm(f => ({ ...f, [field]: value }));
+    if (error) {
+      setError('');
+      clearTimeout(errorTimer.current);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -26,7 +43,7 @@ export default function LoginPage() {
       setAuth(user, accessToken);
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed. Please try again.');
+      showError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -50,7 +67,7 @@ export default function LoginPage() {
               type="email"
               placeholder="you@example.com"
               value={form.email}
-              onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+              onChange={e => handleChange('email', e.target.value)}
               required
             />
             <Input
@@ -58,7 +75,7 @@ export default function LoginPage() {
               type="password"
               placeholder="••••••••"
               value={form.password}
-              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+              onChange={e => handleChange('password', e.target.value)}
               required
             />
             {error && (

@@ -14,7 +14,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // Only force-logout if a previously authenticated session is rejected.
+    // Skipping when no token exists prevents login/register 401 errors from
+    // triggering a page reload that wipes the form's error message.
+    if (err.response?.status === 401 && localStorage.getItem('access_token')) {
       localStorage.removeItem('access_token');
       window.location.href = '/login';
     }
