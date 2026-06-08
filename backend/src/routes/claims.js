@@ -23,5 +23,6 @@ router.post('/:id/confirm',
 );
 
 router.get('/event/:eventId', requireSeller, ctrl.getEventClaims);
+router.get('/event/:eventId/invoices', requireSeller, ctrl.getEventInvoices);
 
 export default router;

@@ -1,4 +1,5 @@
 import api from './api.js';
+export const getListing          = (id)     => api.get(`/listings/${id}`);
 export const createListing       = (data)   => api.post('/listings', data);
 export const updateListing       = (id, d)  => api.patch(`/listings/${id}`, d);
 export const deleteListing       = (id)     => api.delete(`/listings/${id}`);

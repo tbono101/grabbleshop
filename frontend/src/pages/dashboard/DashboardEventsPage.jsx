@@ -87,6 +87,15 @@ export default function DashboardEventsPage() {
                     </Link>
                   )}
 
+                  {/* Host console */}
+                  {!['cancelled'].includes(event.status) && (
+                    <Link to={`/dashboard/events/${event.id}/host`}>
+                      <Button size="xs" variant={event.status === 'live' ? 'primary' : 'secondary'}>
+                        {event.status === 'live' ? '● Host' : 'Host'}
+                      </Button>
+                    </Link>
+                  )}
+
                   {/* Start */}
                   {['draft', 'scheduled'].includes(event.status) && (
                     <Button

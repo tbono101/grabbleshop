@@ -15,7 +15,13 @@ async function ownsListing(userId, listingId) {
 
 export async function getListing(req, res) {
   const listing = await queryOne(
-    `SELECT l.*, STRING_AGG(li.url, ',' ORDER BY li.sort_order) AS image_urls
+    `SELECT l.*,
+            STRING_AGG(li.url, ',' ORDER BY li.sort_order) AS image_urls,
+            COALESCE(
+              json_agg(json_build_object('id', li.id, 'url', li.url) ORDER BY li.sort_order)
+                FILTER (WHERE li.id IS NOT NULL),
+              '[]'
+            ) AS images
      FROM listings l
      LEFT JOIN listing_images li ON li.listing_id = l.id
      WHERE l.id = $1
@@ -24,6 +30,7 @@ export async function getListing(req, res) {
   );
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
   listing.image_urls = listing.image_urls ? listing.image_urls.split(',') : [];
+  listing.images = listing.images ?? [];
   res.json({ data: listing });
 }
 
@@ -31,7 +38,7 @@ export async function createListing(req, res) {
   const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (!seller) return res.status(403).json({ error: 'Seller account required' });
 
-  const { eventId, title, description, category, condition, startingPrice, buyNowPrice, quantity, sortOrder } = req.body;
+  const { eventId, title, description, category, condition, startingPrice, buyNowPrice, quantity, size, sortOrder } = req.body;
 
   const event = await queryOne(
     'SELECT * FROM events WHERE id = $1 AND seller_id = $2',
@@ -45,12 +52,12 @@ export async function createListing(req, res) {
   const id = uuid();
   const listing = await queryOne(
     `INSERT INTO listings (id, event_id, seller_id, title, description, category, condition,
-                           starting_price, buy_now_price, quantity, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+                           starting_price, buy_now_price, quantity, size, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
     [id, eventId, seller.id, title, description || null, category || null,
      condition || 'new', Math.round(startingPrice * 100),
      buyNowPrice ? Math.round(buyNowPrice * 100) : null,
-     quantity || 1, sortOrder || 0]
+     quantity || 1, size || null, sortOrder || 0]
   );
   res.status(201).json({ data: listing });
 }
@@ -62,14 +69,14 @@ export async function updateListing(req, res) {
     return res.status(400).json({ error: 'Cannot edit a claimed or sold listing' });
   }
 
-  const { title, description, category, condition, startingPrice, buyNowPrice, quantity, sortOrder } = req.body;
+  const { title, description, category, condition, startingPrice, buyNowPrice, quantity, size, sortOrder } = req.body;
 
   const updated = await queryOne(
     `UPDATE listings SET
        title = $1, description = $2, category = $3, condition = $4,
-       starting_price = $5, buy_now_price = $6, quantity = $7, sort_order = $8,
+       starting_price = $5, buy_now_price = $6, quantity = $7, size = $8, sort_order = $9,
        updated_at = NOW()
-     WHERE id = $9 RETURNING *`,
+     WHERE id = $10 RETURNING *`,
     [
       title ?? listing.title,
       description ?? listing.description,
@@ -78,6 +85,7 @@ export async function updateListing(req, res) {
       startingPrice ? Math.round(startingPrice * 100) : listing.starting_price,
       buyNowPrice != null ? Math.round(buyNowPrice * 100) : listing.buy_now_price,
       quantity ?? listing.quantity,
+      size !== undefined ? (size || null) : listing.size,
       sortOrder ?? listing.sort_order,
       listing.id,
     ]

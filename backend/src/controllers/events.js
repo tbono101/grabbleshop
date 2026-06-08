@@ -158,7 +158,13 @@ export async function cancelEvent(req, res) {
 
 export async function getEventListings(req, res) {
   const listings = await query(
-    `SELECT l.*, STRING_AGG(li.url, ',' ORDER BY li.sort_order) AS image_urls
+    `SELECT l.*,
+            STRING_AGG(li.url, ',' ORDER BY li.sort_order) AS image_urls,
+            COALESCE(
+              json_agg(json_build_object('id', li.id, 'url', li.url) ORDER BY li.sort_order)
+                FILTER (WHERE li.id IS NOT NULL),
+              '[]'
+            ) AS images
      FROM listings l
      LEFT JOIN listing_images li ON li.listing_id = l.id
      WHERE l.event_id = $1
@@ -170,6 +176,7 @@ export async function getEventListings(req, res) {
   const withImages = listings.map(l => ({
     ...l,
     image_urls: l.image_urls ? l.image_urls.split(',') : [],
+    images: l.images ?? [],
   }));
 
   res.json({ data: withImages });

@@ -27,6 +27,7 @@ import AdminPage from './pages/admin/AdminPage.jsx';
 import DashboardPage          from './pages/dashboard/DashboardPage.jsx';
 import DashboardEventsPage    from './pages/dashboard/DashboardEventsPage.jsx';
 import DashboardEventEditorPage from './pages/dashboard/DashboardEventEditorPage.jsx';
+import DashboardHostPage      from './pages/dashboard/DashboardHostPage.jsx';
 import DashboardOrdersPage    from './pages/dashboard/DashboardOrdersPage.jsx';
 import DashboardOnboardingPage from './pages/dashboard/DashboardOnboardingPage.jsx';
 
@@ -80,6 +81,7 @@ export default function App() {
       <Route path="/dashboard/events" element={<SellerRoute><DashboardEventsPage /></SellerRoute>} />
       <Route path="/dashboard/events/new" element={<SellerRoute><DashboardEventEditorPage /></SellerRoute>} />
       <Route path="/dashboard/events/:id" element={<SellerRoute><DashboardEventEditorPage /></SellerRoute>} />
+      <Route path="/dashboard/events/:id/host" element={<SellerRoute><DashboardHostPage /></SellerRoute>} />
       <Route path="/dashboard/orders" element={<SellerRoute><DashboardOrdersPage /></SellerRoute>} />
       <Route path="/dashboard/onboarding" element={<SellerRoute><DashboardOnboardingPage /></SellerRoute>} />
 

@@ -152,7 +152,7 @@ export async function getEventClaims(req, res) {
   if (!event) return res.status(404).json({ error: 'Event not found' });
 
   const claims = await query(
-    `SELECT c.*, u.first_name, u.last_name, u.email, l.title AS listing_title
+    `SELECT c.*, u.first_name, u.last_name, u.email, l.title AS listing_title, l.size AS listing_size
      FROM claims c
      JOIN users u ON u.id = c.buyer_id
      JOIN listings l ON l.id = c.listing_id
@@ -160,4 +160,56 @@ export async function getEventClaims(req, res) {
     [req.params.eventId]
   );
   res.json({ data: claims });
+}
+
+// Per-shopper invoice summary for an event: groups confirmed (sold) claims
+// by buyer with their line items and a per-shopper total.
+export async function getEventInvoices(req, res) {
+  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
+  if (!seller) return res.status(403).json({ error: 'Seller account required' });
+
+  const event = await queryOne(
+    'SELECT id, title, status, ended_at FROM events WHERE id = $1 AND seller_id = $2',
+    [req.params.eventId, seller.id]
+  );
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+
+  const rows = await query(
+    `SELECT c.buyer_id, c.price, c.created_at,
+            u.first_name, u.last_name, u.email,
+            l.id AS listing_id, l.title AS listing_title, l.size AS listing_size
+     FROM claims c
+     JOIN users u ON u.id = c.buyer_id
+     JOIN listings l ON l.id = c.listing_id
+     WHERE c.event_id = $1 AND c.status = 'confirmed'
+     ORDER BY u.first_name, u.last_name, c.created_at`,
+    [req.params.eventId]
+  );
+
+  const byBuyer = new Map();
+  for (const r of rows) {
+    if (!byBuyer.has(r.buyer_id)) {
+      byBuyer.set(r.buyer_id, {
+        buyer_id: r.buyer_id,
+        name: `${r.first_name} ${r.last_name}`.trim(),
+        email: r.email,
+        items: [],
+        total: 0,
+      });
+    }
+    const inv = byBuyer.get(r.buyer_id);
+    inv.items.push({
+      listing_id: r.listing_id,
+      title: r.listing_title,
+      size: r.listing_size,
+      price: r.price,
+    });
+    inv.total += r.price;
+  }
+
+  const invoices = [...byBuyer.values()].sort((a, b) => b.total - a.total);
+  const grandTotal = invoices.reduce((sum, i) => sum + i.total, 0);
+  const itemCount  = invoices.reduce((sum, i) => sum + i.items.length, 0);
+
+  res.json({ data: { event, invoices, grandTotal, itemCount, buyerCount: invoices.length } });
 }

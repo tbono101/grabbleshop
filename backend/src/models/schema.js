@@ -101,6 +101,7 @@ export async function runMigrations() {
         starting_price INTEGER NOT NULL,
         buy_now_price INTEGER,
         quantity INTEGER NOT NULL DEFAULT 1,
+        size TEXT,
         status TEXT NOT NULL DEFAULT 'pending',
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -247,6 +248,9 @@ export async function runMigrations() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+
+    // Backfill columns for already-deployed databases
+    await client.query(`ALTER TABLE listings ADD COLUMN IF NOT EXISTS size TEXT`);
 
     // Indexes
     await client.query(`CREATE INDEX IF NOT EXISTS idx_users_email          ON users(email)`);

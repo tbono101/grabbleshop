@@ -2,18 +2,13 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
-import Modal from '../../components/ui/Modal.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import Spinner from '../../components/ui/Spinner.jsx';
+import ListingFormModal from '../../components/events/ListingFormModal.jsx';
 import * as eventsApi from '../../services/eventsApi.js';
 import * as listingsApi from '../../services/listingsApi.js';
 import * as sellersApi from '../../services/sellersApi.js';
 import { cents } from '../../utils/format.js';
-
-const DEFAULT_LISTING = {
-  title: '', description: '', category: '', condition: 'new',
-  startingPrice: '', buyNowPrice: '', quantity: 1,
-};
 
 export default function DashboardEventEditorPage() {
   const { id } = useParams(); // undefined = new event
@@ -27,14 +22,16 @@ export default function DashboardEventEditorPage() {
   const [saving, setSaving] = useState(false);
   const [listingModal, setListingModal] = useState(false);
   const [editingListing, setEditingListing] = useState(null);
-  const [listingForm, setListingForm] = useState(DEFAULT_LISTING);
-  const [listingSaving, setListingSaving] = useState(false);
-  const [generatingDesc, setGeneratingDesc] = useState(false);
   const [activating, setActivating] = useState(null);
 
   const [form, setForm] = useState({
     title: '', description: '', scheduledAt: '', streamUrl: '', shippingPolicy: '',
   });
+
+  async function refreshListings() {
+    const res = await eventsApi.getEventListings(id);
+    setListings(res.data.data);
+  }
 
   useEffect(() => {
     async function load() {
@@ -86,44 +83,12 @@ export default function DashboardEventEditorPage() {
 
   function openNewListing() {
     setEditingListing(null);
-    setListingForm(DEFAULT_LISTING);
     setListingModal(true);
   }
 
   function openEditListing(l) {
     setEditingListing(l);
-    setListingForm({
-      title: l.title,
-      description: l.description || '',
-      category: l.category || '',
-      condition: l.condition,
-      startingPrice: (l.starting_price / 100).toFixed(2),
-      buyNowPrice: l.buy_now_price ? (l.buy_now_price / 100).toFixed(2) : '',
-      quantity: l.quantity,
-    });
     setListingModal(true);
-  }
-
-  async function saveListing(e) {
-    e.preventDefault();
-    setListingSaving(true);
-    try {
-      const payload = {
-        ...listingForm,
-        eventId: id,
-        startingPrice: parseFloat(listingForm.startingPrice),
-        buyNowPrice: listingForm.buyNowPrice ? parseFloat(listingForm.buyNowPrice) : undefined,
-      };
-      if (editingListing) {
-        await listingsApi.updateListing(editingListing.id, payload);
-      } else {
-        await listingsApi.createListing(payload);
-      }
-      const res = await eventsApi.getEventListings(id);
-      setListings(res.data.data);
-      setListingModal(false);
-    } catch {}
-    setListingSaving(false);
   }
 
   async function deleteListing(listingId) {
@@ -136,24 +101,12 @@ export default function DashboardEventEditorPage() {
     setActivating(listingId);
     try {
       await listingsApi.activateListing(listingId);
-      const res = await eventsApi.getEventListings(id);
-      setListings(res.data.data);
+      await refreshListings();
     } catch {}
     setActivating(null);
   }
 
-  async function handleGenerateDesc() {
-    if (!editingListing) return;
-    setGeneratingDesc(true);
-    try {
-      const res = await listingsApi.generateDescription(editingListing.id);
-      setListingForm(f => ({ ...f, description: res.data.data.description }));
-    } catch {}
-    setGeneratingDesc(false);
-  }
-
   const set = key => e => setForm(f => ({ ...f, [key]: e.target.value }));
-  const setL = key => e => setListingForm(f => ({ ...f, [key]: e.target.value }));
 
   if (loading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>;
 
@@ -166,7 +119,16 @@ export default function DashboardEventEditorPage() {
         {event && <Badge status={event.status} />}
       </div>
 
-      <h1 className="text-2xl font-bold text-white">{isNew ? 'New Sale Event' : 'Edit Event'}</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-2xl font-bold text-white">{isNew ? 'New Sale Event' : 'Edit Event'}</h1>
+        {!isNew && (
+          <Link to={`/dashboard/events/${id}/host`}>
+            <Button variant={isLive ? 'primary' : 'secondary'}>
+              {isLive ? '● Host Live Sale' : 'Open Host Console'}
+            </Button>
+          </Link>
+        )}
+      </div>
 
       {/* Event form */}
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
@@ -228,7 +190,11 @@ export default function DashboardEventEditorPage() {
 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">{l.title}</p>
-                    <p className="text-xs text-brand-gold">{cents(l.starting_price)}</p>
+                    <p className="text-xs text-brand-gold">
+                      {cents(l.starting_price)}
+                      {l.size && <span className="text-gray-500"> · Size {l.size}</span>}
+                      {l.quantity > 1 && <span className="text-gray-500"> · Qty {l.quantity}</span>}
+                    </p>
                   </div>
 
                   <Badge status={l.status} />
@@ -253,58 +219,14 @@ export default function DashboardEventEditorPage() {
         </section>
       )}
 
-      {/* Listing modal */}
-      <Modal isOpen={listingModal} onClose={() => setListingModal(false)} title={editingListing ? 'Edit Item' : 'Add Item'} maxWidth="max-w-xl">
-        <form onSubmit={saveListing} className="space-y-4">
-          <Input label="Title *" placeholder='e.g. "Haunted Mansion Spirit Jersey - L"' value={listingForm.title} onChange={setL('title')} required />
-
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <label className="text-sm font-medium text-gray-300">Description</label>
-              <textarea
-                className="mt-1 w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 resize-none"
-                rows={3}
-                value={listingForm.description}
-                onChange={setL('description')}
-                placeholder="Describe the item…"
-              />
-            </div>
-            {editingListing && (
-              <Button type="button" size="sm" variant="secondary" loading={generatingDesc} onClick={handleGenerateDesc} className="shrink-0 mb-0.5">
-                AI ✨
-              </Button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Category" placeholder="Apparel, Pins, Plush…" value={listingForm.category} onChange={setL('category')} />
-            <div>
-              <label className="text-sm font-medium text-gray-300">Condition</label>
-              <select
-                className="mt-1 w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-accent/50"
-                value={listingForm.condition}
-                onChange={setL('condition')}
-              >
-                <option value="new">New</option>
-                <option value="like_new">Like New</option>
-                <option value="good">Good</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Starting price ($) *" type="number" step="0.01" min="0.01" placeholder="25.00" value={listingForm.startingPrice} onChange={setL('startingPrice')} required />
-            <Input label="Buy now price ($)" type="number" step="0.01" min="0.01" placeholder="Optional" value={listingForm.buyNowPrice} onChange={setL('buyNowPrice')} />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <Button type="submit" loading={listingSaving} className="flex-1">
-              {editingListing ? 'Save Changes' : 'Add Item'}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setListingModal(false)}>Cancel</Button>
-          </div>
-        </form>
-      </Modal>
+      {/* Shared item entry form */}
+      <ListingFormModal
+        isOpen={listingModal}
+        onClose={() => setListingModal(false)}
+        eventId={id}
+        listing={editingListing}
+        onChange={refreshListings}
+      />
     </div>
   );
 }
