@@ -7,7 +7,7 @@ export async function createCheckoutSession(req, res) {
   const { orderId } = req.body;
 
   const order = db.prepare(`
-    SELECT o.*, s.stripe_account_id, s.commission_rate, s.shop_name
+    SELECT o.*, s.stripe_account_id, s.commission_rate, s.fee_override, s.shop_name
     FROM orders o JOIN sellers s ON s.id = o.seller_id
     WHERE o.id = ? AND o.buyer_id = ?
   `).get(orderId, req.user.sub);
@@ -53,7 +53,9 @@ export async function createCheckoutSession(req, res) {
     });
   }
 
-  const platformFeeRate = getPlatformFeeRate();
+  const platformFeeRate = order.fee_override !== null && order.fee_override !== undefined
+    ? order.fee_override
+    : getPlatformFeeRate();
   const applicationFee = Math.round(order.total * (order.commission_rate + platformFeeRate));
 
   const session = await stripe.checkout.sessions.create({

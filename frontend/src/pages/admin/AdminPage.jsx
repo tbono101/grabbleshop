@@ -39,6 +39,11 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
+  // fee_override editing: keyed by seller_id
+  const [feeEdits, setFeeEdits]   = useState({});  // { seller_id: string }
+  const [feeSaving, setFeeSaving] = useState(new Set());
+  const [feeErrors, setFeeErrors] = useState({});  // { seller_id: string }
+
   // Platform settings (super_admin only)
   const [feeInput, setFeeInput]       = useState('');
   const [feeLoading, setFeeLoading]   = useState(false);
@@ -65,8 +70,19 @@ export default function AdminPage() {
     setLoading(true);
     adminApi.listUsers({ page, limit: 20, search, role: roleFilter })
       .then(r => {
-        setUsers(r.data.data.users);
+        const loaded = r.data.data.users;
+        setUsers(loaded);
         setTotal(r.data.data.total);
+        // Initialise fee edit inputs from loaded data (platform default shown as empty = inherit)
+        const edits = {};
+        loaded.forEach(u => {
+          if (u.seller_id) {
+            edits[u.seller_id] = u.fee_override !== null && u.fee_override !== undefined
+              ? (u.fee_override * 100).toFixed(2)
+              : '';
+          }
+        });
+        setFeeEdits(edits);
       })
       .catch(() => setError('Failed to load users.'))
       .finally(() => setLoading(false));
@@ -87,6 +103,28 @@ export default function AdminPage() {
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role } : u));
     } catch {
       setError('Failed to update role.');
+    }
+  };
+
+  const saveSellerFee = async (sellerId) => {
+    const raw = feeEdits[sellerId] ?? '';
+    // Empty string means "clear override, revert to platform default"
+    const feeOverride = raw.trim() === '' ? null : parseFloat(raw) / 100;
+    if (feeOverride !== null && (isNaN(feeOverride) || feeOverride < 0 || feeOverride > 1)) {
+      setFeeErrors(prev => ({ ...prev, [sellerId]: 'Enter 0–100' }));
+      return;
+    }
+    setFeeErrors(prev => ({ ...prev, [sellerId]: '' }));
+    setFeeSaving(prev => new Set(prev).add(sellerId));
+    try {
+      await adminApi.updateSellerFee(sellerId, feeOverride);
+      setUsers(prev => prev.map(u =>
+        u.seller_id === sellerId ? { ...u, fee_override: feeOverride } : u
+      ));
+    } catch {
+      setFeeErrors(prev => ({ ...prev, [sellerId]: 'Save failed' }));
+    } finally {
+      setFeeSaving(prev => { const s = new Set(prev); s.delete(sellerId); return s; });
     }
   };
 
@@ -192,15 +230,16 @@ export default function AdminPage() {
                 <th className="pb-2 pr-4 font-medium">Name</th>
                 <th className="pb-2 pr-4 font-medium">Role</th>
                 <th className="pb-2 pr-4 font-medium">Status</th>
+                {isSuperAdmin && <th className="pb-2 pr-4 font-medium">Fee %</th>}
                 <th className="pb-2 pr-4 font-medium">Joined</th>
                 <th className="pb-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="py-6 text-center text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={isSuperAdmin ? 7 : 6} className="py-6 text-center text-gray-400">Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={6} className="py-6 text-center text-gray-400">No users found.</td></tr>
+                <tr><td colSpan={isSuperAdmin ? 7 : 6} className="py-6 text-center text-gray-400">No users found.</td></tr>
               ) : users.map(u => (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="py-2 pr-4 text-gray-800">{u.email}</td>
@@ -223,6 +262,33 @@ export default function AdminPage() {
                       {u.is_active ? 'Active' : 'Suspended'}
                     </span>
                   </td>
+                  {isSuperAdmin && (
+                    <td className="py-2 pr-4">
+                      {u.seller_id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            placeholder={`default`}
+                            value={feeEdits[u.seller_id] ?? ''}
+                            onChange={e => setFeeEdits(prev => ({ ...prev, [u.seller_id]: e.target.value }))}
+                            onBlur={() => saveSellerFee(u.seller_id)}
+                            onKeyDown={e => e.key === 'Enter' && saveSellerFee(u.seller_id)}
+                            disabled={feeSaving.has(u.seller_id)}
+                            className="border rounded px-1.5 py-0.5 text-xs w-20 disabled:opacity-50"
+                          />
+                          <span className="text-xs text-gray-400">%</span>
+                          {feeErrors[u.seller_id] && (
+                            <span className="text-xs text-red-500">{feeErrors[u.seller_id]}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="py-2 pr-4 text-gray-500">
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>

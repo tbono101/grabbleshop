@@ -24,8 +24,12 @@ export function listUsers(req, res) {
 
   const total = db.prepare(`SELECT COUNT(*) as n FROM users WHERE ${where}`).get(...params).n;
   const users = db.prepare(
-    `SELECT id, email, role, first_name, last_name, phone, is_active, email_verified, created_at
-     FROM users WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    `SELECT u.id, u.email, u.role, u.first_name, u.last_name, u.phone,
+            u.is_active, u.email_verified, u.created_at,
+            s.id AS seller_id, s.fee_override
+     FROM users u
+     LEFT JOIN sellers s ON s.user_id = u.id
+     WHERE ${where} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`
   ).all(...params, Number(limit), offset);
 
   res.json({ data: { users, total, page: Number(page), limit: Number(limit) } });
@@ -66,6 +70,26 @@ export function updateUser(req, res) {
   ).get(req.params.id);
 
   res.json({ data: { user: updated } });
+}
+
+export function updateSellerFee(req, res) {
+  const seller = db.prepare('SELECT id FROM sellers WHERE id = ?').get(req.params.id);
+  if (!seller) return res.status(404).json({ error: 'Seller not found' });
+
+  const { fee_override } = req.body;
+
+  if (fee_override === null || fee_override === undefined) {
+    // Clear override — revert to platform default
+    db.prepare("UPDATE sellers SET fee_override = NULL, updated_at = datetime('now') WHERE id = ?").run(req.params.id);
+  } else {
+    const rate = parseFloat(fee_override);
+    if (isNaN(rate) || rate < 0 || rate > 1) {
+      return res.status(400).json({ error: 'fee_override must be between 0 and 1' });
+    }
+    db.prepare("UPDATE sellers SET fee_override = ?, updated_at = datetime('now') WHERE id = ?").run(rate, req.params.id);
+  }
+
+  res.json({ data: db.prepare('SELECT id, fee_override FROM sellers WHERE id = ?').get(req.params.id) });
 }
 
 export function listSellers(req, res) {

@@ -231,5 +231,8 @@ export function runMigrations() {
     INSERT OR IGNORE INTO platform_settings (key, value) VALUES ('platform_fee_rate', '0.01');
   `);
 
+  // Additive column migrations — safe to run on existing databases
+  try { db.exec(`ALTER TABLE sellers ADD COLUMN fee_override REAL`); } catch {}
+
   console.log('Database migrations complete.');
 }
