@@ -12,8 +12,16 @@ export function SellerRoute({ children }) {
   const { user, token } = useAuthStore();
   const location = useLocation();
   if (!token || !user) return <Navigate to="/login" state={{ from: location }} replace />;
-  if (user.role !== 'seller' && user.role !== 'admin') {
+  if (user.role !== 'seller' && user.role !== 'admin' && user.role !== 'super_admin') {
     return <Navigate to="/become-seller" replace />;
   }
+  return children;
+}
+
+export function AdminRoute({ children }) {
+  const { user, token } = useAuthStore();
+  const location = useLocation();
+  if (!token || !user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (user.role !== 'super_admin') return <Navigate to="/" replace />;
   return children;
 }

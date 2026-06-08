@@ -22,6 +22,7 @@ import orderRoutes    from './src/routes/orders.js';
 import paymentRoutes  from './src/routes/payments.js';
 import shippingRoutes from './src/routes/shipping.js';
 import webhookRoutes  from './src/routes/webhooks.js';
+import adminRoutes    from './src/routes/admin.js';
 
 runMigrations();
 
@@ -59,6 +60,7 @@ app.use('/api/claims',   claimRoutes);
 app.use('/api/orders',   orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/shipping', shippingRoutes);
+app.use('/api/admin',   adminRoutes);
 
 // Serve React frontend in production
 if (fs.existsSync(DIST)) {

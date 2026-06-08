@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Layout from './components/layout/Layout.jsx';
-import { ProtectedRoute, SellerRoute } from './components/layout/ProtectedRoute.jsx';
+import { ProtectedRoute, SellerRoute, AdminRoute } from './components/layout/ProtectedRoute.jsx';
 import ToastContainer from './components/ui/Toast.jsx';
 import { useToast } from './hooks/useToast.js';
 import useAuthStore from './store/authStore.js';
@@ -19,6 +19,9 @@ import OrderDetailPage    from './pages/OrderDetailPage.jsx';
 import ProfilePage        from './pages/ProfilePage.jsx';
 import BecomeSeller       from './pages/BecomeSeller.jsx';
 import NotFoundPage       from './pages/NotFoundPage.jsx';
+
+// Admin
+import AdminPage from './pages/admin/AdminPage.jsx';
 
 // Dashboard
 import DashboardPage          from './pages/dashboard/DashboardPage.jsx';
@@ -79,6 +82,8 @@ export default function App() {
       <Route path="/dashboard/events/:id" element={<SellerRoute><DashboardEventEditorPage /></SellerRoute>} />
       <Route path="/dashboard/orders" element={<SellerRoute><DashboardOrdersPage /></SellerRoute>} />
       <Route path="/dashboard/onboarding" element={<SellerRoute><DashboardOnboardingPage /></SellerRoute>} />
+
+      <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
 
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

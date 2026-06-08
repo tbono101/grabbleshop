@@ -64,7 +64,10 @@ export default function Navbar() {
                     <div className="py-1">
                       <MenuItem to="/orders" onClick={() => setUserMenuOpen(false)}>My Orders</MenuItem>
                       <MenuItem to="/profile" onClick={() => setUserMenuOpen(false)}>Profile</MenuItem>
-                      {user.role === 'seller' || user.role === 'admin' ? (
+                      {user.role === 'super_admin' && (
+                        <MenuItem to="/admin" onClick={() => setUserMenuOpen(false)}>Admin Dashboard</MenuItem>
+                      )}
+                      {(user.role === 'seller' || user.role === 'admin' || user.role === 'super_admin') ? (
                         <MenuItem to="/dashboard" onClick={() => setUserMenuOpen(false)}>Seller Dashboard</MenuItem>
                       ) : (
                         <MenuItem to="/become-seller" onClick={() => setUserMenuOpen(false)}>Become a Seller</MenuItem>
