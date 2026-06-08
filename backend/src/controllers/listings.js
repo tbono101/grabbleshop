@@ -1,57 +1,62 @@
 import { v4 as uuid } from 'uuid';
-import db from '../models/db.js';
+import { query, queryOne } from '../models/db.js';
 import { generateProductDescription } from '../services/anthropic.js';
 import { uploadImage } from '../services/cloudflare.js';
 import fs from 'fs';
 
-function ownsListing(userId, listingId) {
-  const listing = db.prepare(`
-    SELECT l.* FROM listings l
-    JOIN sellers s ON s.id = l.seller_id
-    WHERE l.id = ? AND s.user_id = ?
-  `).get(listingId, userId);
-  return listing;
+async function ownsListing(userId, listingId) {
+  return queryOne(
+    `SELECT l.* FROM listings l
+     JOIN sellers s ON s.id = l.seller_id
+     WHERE l.id = $1 AND s.user_id = $2`,
+    [listingId, userId]
+  );
 }
 
-export function getListing(req, res) {
-  const listing = db.prepare(`
-    SELECT l.*, GROUP_CONCAT(li.url ORDER BY li.sort_order) AS image_urls
-    FROM listings l
-    LEFT JOIN listing_images li ON li.listing_id = l.id
-    WHERE l.id = ?
-    GROUP BY l.id
-  `).get(req.params.id);
+export async function getListing(req, res) {
+  const listing = await queryOne(
+    `SELECT l.*, STRING_AGG(li.url, ',' ORDER BY li.sort_order) AS image_urls
+     FROM listings l
+     LEFT JOIN listing_images li ON li.listing_id = l.id
+     WHERE l.id = $1
+     GROUP BY l.id`,
+    [req.params.id]
+  );
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
   listing.image_urls = listing.image_urls ? listing.image_urls.split(',') : [];
   res.json({ data: listing });
 }
 
-export function createListing(req, res) {
-  const seller = db.prepare('SELECT * FROM sellers WHERE user_id = ?').get(req.user.sub);
+export async function createListing(req, res) {
+  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (!seller) return res.status(403).json({ error: 'Seller account required' });
 
   const { eventId, title, description, category, condition, startingPrice, buyNowPrice, quantity, sortOrder } = req.body;
 
-  const event = db.prepare('SELECT * FROM events WHERE id = ? AND seller_id = ?').get(eventId, seller.id);
+  const event = await queryOne(
+    'SELECT * FROM events WHERE id = $1 AND seller_id = $2',
+    [eventId, seller.id]
+  );
   if (!event) return res.status(404).json({ error: 'Event not found or not yours' });
   if (['ended', 'cancelled'].includes(event.status)) {
     return res.status(400).json({ error: 'Cannot add listings to this event' });
   }
 
   const id = uuid();
-  db.prepare(`
-    INSERT INTO listings (id, event_id, seller_id, title, description, category, condition,
-                          starting_price, buy_now_price, quantity, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, eventId, seller.id, title, description || null, category || null,
-    condition || 'new', Math.round(startingPrice * 100), buyNowPrice ? Math.round(buyNowPrice * 100) : null,
-    quantity || 1, sortOrder || 0);
-
-  res.status(201).json({ data: db.prepare('SELECT * FROM listings WHERE id = ?').get(id) });
+  const listing = await queryOne(
+    `INSERT INTO listings (id, event_id, seller_id, title, description, category, condition,
+                           starting_price, buy_now_price, quantity, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    [id, eventId, seller.id, title, description || null, category || null,
+     condition || 'new', Math.round(startingPrice * 100),
+     buyNowPrice ? Math.round(buyNowPrice * 100) : null,
+     quantity || 1, sortOrder || 0]
+  );
+  res.status(201).json({ data: listing });
 }
 
-export function updateListing(req, res) {
-  const listing = ownsListing(req.user.sub, req.params.id);
+export async function updateListing(req, res) {
+  const listing = await ownsListing(req.user.sub, req.params.id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
   if (['claimed', 'sold'].includes(listing.status)) {
     return res.status(400).json({ error: 'Cannot edit a claimed or sold listing' });
@@ -59,71 +64,69 @@ export function updateListing(req, res) {
 
   const { title, description, category, condition, startingPrice, buyNowPrice, quantity, sortOrder } = req.body;
 
-  db.prepare(`
-    UPDATE listings SET
-      title = ?, description = ?, category = ?, condition = ?,
-      starting_price = ?, buy_now_price = ?, quantity = ?, sort_order = ?,
-      updated_at = datetime('now')
-    WHERE id = ?
-  `).run(
-    title ?? listing.title,
-    description ?? listing.description,
-    category ?? listing.category,
-    condition ?? listing.condition,
-    startingPrice ? Math.round(startingPrice * 100) : listing.starting_price,
-    buyNowPrice != null ? Math.round(buyNowPrice * 100) : listing.buy_now_price,
-    quantity ?? listing.quantity,
-    sortOrder ?? listing.sort_order,
-    listing.id
+  const updated = await queryOne(
+    `UPDATE listings SET
+       title = $1, description = $2, category = $3, condition = $4,
+       starting_price = $5, buy_now_price = $6, quantity = $7, sort_order = $8,
+       updated_at = NOW()
+     WHERE id = $9 RETURNING *`,
+    [
+      title ?? listing.title,
+      description ?? listing.description,
+      category ?? listing.category,
+      condition ?? listing.condition,
+      startingPrice ? Math.round(startingPrice * 100) : listing.starting_price,
+      buyNowPrice != null ? Math.round(buyNowPrice * 100) : listing.buy_now_price,
+      quantity ?? listing.quantity,
+      sortOrder ?? listing.sort_order,
+      listing.id,
+    ]
   );
-
-  res.json({ data: db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id) });
+  res.json({ data: updated });
 }
 
-export function deleteListing(req, res) {
-  const listing = ownsListing(req.user.sub, req.params.id);
+export async function deleteListing(req, res) {
+  const listing = await ownsListing(req.user.sub, req.params.id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
   if (!['pending', 'unsold'].includes(listing.status)) {
     return res.status(400).json({ error: 'Cannot delete this listing' });
   }
-  db.prepare('DELETE FROM listings WHERE id = ?').run(listing.id);
+  await query('DELETE FROM listings WHERE id = $1', [listing.id]);
   res.json({ data: { message: 'Listing deleted' } });
 }
 
-export function activateListing(req, res) {
-  const listing = ownsListing(req.user.sub, req.params.id);
+export async function activateListing(req, res) {
+  const listing = await ownsListing(req.user.sub, req.params.id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
 
-  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(listing.event_id);
+  const event = await queryOne('SELECT * FROM events WHERE id = $1', [listing.event_id]);
   if (event.status !== 'live') return res.status(400).json({ error: 'Event must be live to activate a listing' });
 
-  // Only one listing can be active at a time per event
-  db.prepare(`
-    UPDATE listings SET status = 'pending', updated_at = datetime('now')
-    WHERE event_id = ? AND status = 'active'
-  `).run(listing.event_id);
-
-  db.prepare(`
-    UPDATE listings SET status = 'active', updated_at = datetime('now') WHERE id = ?
-  `).run(listing.id);
-
-  res.json({ data: db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id) });
+  await query(
+    "UPDATE listings SET status = 'pending', updated_at = NOW() WHERE event_id = $1 AND status = 'active'",
+    [listing.event_id]
+  );
+  const updated = await queryOne(
+    "UPDATE listings SET status = 'active', updated_at = NOW() WHERE id = $1 RETURNING *",
+    [listing.id]
+  );
+  res.json({ data: updated });
 }
 
-export function deactivateListing(req, res) {
-  const listing = ownsListing(req.user.sub, req.params.id);
+export async function deactivateListing(req, res) {
+  const listing = await ownsListing(req.user.sub, req.params.id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
   if (listing.status !== 'active') return res.status(400).json({ error: 'Listing is not active' });
 
-  db.prepare(`
-    UPDATE listings SET status = 'pending', updated_at = datetime('now') WHERE id = ?
-  `).run(listing.id);
-
-  res.json({ data: db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id) });
+  const updated = await queryOne(
+    "UPDATE listings SET status = 'pending', updated_at = NOW() WHERE id = $1 RETURNING *",
+    [listing.id]
+  );
+  res.json({ data: updated });
 }
 
 export async function uploadImages(req, res) {
-  const listing = ownsListing(req.user.sub, req.params.id);
+  const listing = await ownsListing(req.user.sub, req.params.id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
   if (!req.files?.length) return res.status(400).json({ error: 'No images uploaded' });
 
@@ -133,23 +136,24 @@ export async function uploadImages(req, res) {
     try {
       const url = await uploadImage(file.path);
       const id = uuid();
-      const currentMax = db.prepare(
-        'SELECT COALESCE(MAX(sort_order), -1) AS m FROM listing_images WHERE listing_id = ?'
-      ).get(listing.id).m;
-      db.prepare('INSERT INTO listing_images (id, listing_id, url, sort_order) VALUES (?, ?, ?, ?)').run(
-        id, listing.id, url, currentMax + 1 + i
+      const maxRow = await queryOne(
+        'SELECT COALESCE(MAX(sort_order), -1) AS m FROM listing_images WHERE listing_id = $1',
+        [listing.id]
+      );
+      await query(
+        'INSERT INTO listing_images (id, listing_id, url, sort_order) VALUES ($1, $2, $3, $4)',
+        [id, listing.id, url, maxRow.m + 1 + i]
       );
       images.push({ id, url });
     } finally {
       fs.unlink(file.path, () => {});
     }
   }
-
   res.status(201).json({ data: images });
 }
 
 export async function generateDescription(req, res) {
-  const listing = ownsListing(req.user.sub, req.params.id);
+  const listing = await ownsListing(req.user.sub, req.params.id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
 
   const description = await generateProductDescription(listing.title, {
@@ -157,18 +161,20 @@ export async function generateDescription(req, res) {
     condition: listing.condition,
     price: (listing.starting_price / 100).toFixed(2),
   });
-
   res.json({ data: { description } });
 }
 
-export function deleteImage(req, res) {
+export async function deleteImage(req, res) {
   const { id, imageId } = req.params;
-  const listing = ownsListing(req.user.sub, id);
+  const listing = await ownsListing(req.user.sub, id);
   if (!listing) return res.status(404).json({ error: 'Listing not found' });
 
-  const image = db.prepare('SELECT * FROM listing_images WHERE id = ? AND listing_id = ?').get(imageId, id);
+  const image = await queryOne(
+    'SELECT id FROM listing_images WHERE id = $1 AND listing_id = $2',
+    [imageId, id]
+  );
   if (!image) return res.status(404).json({ error: 'Image not found' });
 
-  db.prepare('DELETE FROM listing_images WHERE id = ?').run(imageId);
+  await query('DELETE FROM listing_images WHERE id = $1', [imageId]);
   res.json({ data: { message: 'Image deleted' } });
 }

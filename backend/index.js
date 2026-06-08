@@ -24,7 +24,7 @@ import shippingRoutes from './src/routes/shipping.js';
 import webhookRoutes  from './src/routes/webhooks.js';
 import adminRoutes    from './src/routes/admin.js';
 
-runMigrations();
+await runMigrations();
 
 const app = express();
 const PORT = process.env.PORT || 3001;

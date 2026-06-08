@@ -1,106 +1,113 @@
 import { v4 as uuid } from 'uuid';
-import db from '../models/db.js';
+import { query, queryOne } from '../models/db.js';
 import stripe from '../services/stripe.js';
 
-export function listSellers(req, res) {
+export async function listSellers(req, res) {
   const { q, limit = 20, offset = 0 } = req.query;
   const sellers = q
-    ? db.prepare(`
-        SELECT s.*, u.first_name, u.last_name
-        FROM sellers s JOIN users u ON u.id = s.user_id
-        WHERE s.is_active = 1 AND (s.shop_name LIKE ? OR s.bio LIKE ?)
-        ORDER BY s.total_sales DESC LIMIT ? OFFSET ?
-      `).all(`%${q}%`, `%${q}%`, Number(limit), Number(offset))
-    : db.prepare(`
-        SELECT s.*, u.first_name, u.last_name
-        FROM sellers s JOIN users u ON u.id = s.user_id
-        WHERE s.is_active = 1
-        ORDER BY s.total_sales DESC LIMIT ? OFFSET ?
-      `).all(Number(limit), Number(offset));
-
+    ? await query(
+        `SELECT s.*, u.first_name, u.last_name FROM sellers s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.is_active = 1 AND (s.shop_name ILIKE $1 OR s.bio ILIKE $2)
+         ORDER BY s.total_sales DESC LIMIT $3 OFFSET $4`,
+        [`%${q}%`, `%${q}%`, Number(limit), Number(offset)]
+      )
+    : await query(
+        `SELECT s.*, u.first_name, u.last_name FROM sellers s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.is_active = 1
+         ORDER BY s.total_sales DESC LIMIT $1 OFFSET $2`,
+        [Number(limit), Number(offset)]
+      );
   res.json({ data: sellers });
 }
 
-export function getSeller(req, res) {
-  const seller = db.prepare(`
-    SELECT s.*, u.first_name, u.last_name, u.avatar_url AS user_avatar
-    FROM sellers s JOIN users u ON u.id = s.user_id
-    WHERE s.id = ?
-  `).get(req.params.id);
+export async function getSeller(req, res) {
+  const seller = await queryOne(
+    `SELECT s.*, u.first_name, u.last_name, u.avatar_url AS user_avatar
+     FROM sellers s JOIN users u ON u.id = s.user_id WHERE s.id = $1`,
+    [req.params.id]
+  );
   if (!seller) return res.status(404).json({ error: 'Seller not found' });
 
-  const reviewStats = db.prepare(`
-    SELECT COUNT(*) AS count, AVG(rating) AS avg_rating FROM reviews WHERE seller_id = ?
-  `).get(req.params.id);
-
-  const followerCount = db.prepare(
-    'SELECT COUNT(*) AS count FROM follows WHERE seller_id = ?'
-  ).get(req.params.id);
+  const reviewStats = await queryOne(
+    'SELECT COUNT(*)::int AS count, AVG(rating) AS avg_rating FROM reviews WHERE seller_id = $1',
+    [req.params.id]
+  );
+  const followerCount = await queryOne(
+    'SELECT COUNT(*)::int AS count FROM follows WHERE seller_id = $1',
+    [req.params.id]
+  );
 
   res.json({ data: { ...seller, ...reviewStats, follower_count: followerCount.count } });
 }
 
-export function getMyStore(req, res) {
-  const seller = db.prepare('SELECT * FROM sellers WHERE user_id = ?').get(req.user.sub);
+export async function getMyStore(req, res) {
+  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (!seller) return res.status(404).json({ error: 'No seller account found' });
   res.json({ data: seller });
 }
 
-export function createSeller(req, res) {
+export async function createSeller(req, res) {
   const { shopName, bio, instagramHandle, tiktokHandle } = req.body;
 
-  const existing = db.prepare('SELECT id FROM sellers WHERE user_id = ?').get(req.user.sub);
+  const existing = await queryOne('SELECT id FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (existing) return res.status(409).json({ error: 'Seller account already exists' });
 
-  const nameConflict = db.prepare('SELECT id FROM sellers WHERE shop_name = ?').get(shopName);
+  const nameConflict = await queryOne('SELECT id FROM sellers WHERE shop_name = $1', [shopName]);
   if (nameConflict) return res.status(409).json({ error: 'Shop name already taken' });
 
   const id = uuid();
-  db.prepare(`
-    INSERT INTO sellers (id, user_id, shop_name, bio, instagram_handle, tiktok_handle)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, req.user.sub, shopName, bio || null, instagramHandle || null, tiktokHandle || null);
+  const seller = await queryOne(
+    `INSERT INTO sellers (id, user_id, shop_name, bio, instagram_handle, tiktok_handle)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [id, req.user.sub, shopName, bio || null, instagramHandle || null, tiktokHandle || null]
+  );
 
-  db.prepare("UPDATE users SET role = 'seller', updated_at = datetime('now') WHERE id = ?")
-    .run(req.user.sub);
+  await query(
+    "UPDATE users SET role = 'seller', updated_at = NOW() WHERE id = $1",
+    [req.user.sub]
+  );
 
-  res.status(201).json({ data: db.prepare('SELECT * FROM sellers WHERE id = ?').get(id) });
+  res.status(201).json({ data: seller });
 }
 
-export function updateSeller(req, res) {
-  const seller = db.prepare('SELECT * FROM sellers WHERE user_id = ?').get(req.user.sub);
+export async function updateSeller(req, res) {
+  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (!seller) return res.status(404).json({ error: 'Seller account not found' });
 
-  const { shopName, bio, instagramHandle, tiktokHandle, avatarUrl, bannerUrl, shippingPolicy } = req.body;
+  const { shopName, bio, instagramHandle, tiktokHandle, avatarUrl, bannerUrl } = req.body;
 
   if (shopName && shopName !== seller.shop_name) {
-    const conflict = db.prepare('SELECT id FROM sellers WHERE shop_name = ? AND id != ?').get(shopName, seller.id);
+    const conflict = await queryOne(
+      'SELECT id FROM sellers WHERE shop_name = $1 AND id != $2',
+      [shopName, seller.id]
+    );
     if (conflict) return res.status(409).json({ error: 'Shop name already taken' });
   }
 
-  db.prepare(`
-    UPDATE sellers SET
-      shop_name = ?, bio = ?, instagram_handle = ?, tiktok_handle = ?,
-      avatar_url = ?, banner_url = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(
-    shopName ?? seller.shop_name,
-    bio ?? seller.bio,
-    instagramHandle ?? seller.instagram_handle,
-    tiktokHandle ?? seller.tiktok_handle,
-    avatarUrl ?? seller.avatar_url,
-    bannerUrl ?? seller.banner_url,
-    seller.id
+  const updated = await queryOne(
+    `UPDATE sellers SET
+       shop_name = $1, bio = $2, instagram_handle = $3, tiktok_handle = $4,
+       avatar_url = $5, banner_url = $6, updated_at = NOW()
+     WHERE id = $7 RETURNING *`,
+    [
+      shopName ?? seller.shop_name,
+      bio ?? seller.bio,
+      instagramHandle ?? seller.instagram_handle,
+      tiktokHandle ?? seller.tiktok_handle,
+      avatarUrl ?? seller.avatar_url,
+      bannerUrl ?? seller.banner_url,
+      seller.id,
+    ]
   );
-
-  res.json({ data: db.prepare('SELECT * FROM sellers WHERE id = ?').get(seller.id) });
+  res.json({ data: updated });
 }
 
 export async function createStripeOnboardingLink(req, res) {
-  const seller = db.prepare('SELECT * FROM sellers WHERE user_id = ?').get(req.user.sub);
+  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (!seller) return res.status(404).json({ error: 'Seller account not found' });
 
-  // Derive base URL from the request when CLIENT_ORIGIN is not set (e.g. same-origin Railway deploys)
   const origin = (process.env.CLIENT_ORIGIN || '').split(',')[0].trim()
     || `${req.protocol}://${req.get('host')}`;
 
@@ -112,7 +119,10 @@ export async function createStripeOnboardingLink(req, res) {
       metadata: { seller_id: seller.id, user_id: req.user.sub },
     });
     accountId = account.id;
-    db.prepare('UPDATE sellers SET stripe_account_id = ? WHERE id = ?').run(accountId, seller.id);
+    await query(
+      'UPDATE sellers SET stripe_account_id = $1 WHERE id = $2',
+      [accountId, seller.id]
+    );
   }
 
   const link = await stripe.accountLinks.create({
@@ -126,7 +136,7 @@ export async function createStripeOnboardingLink(req, res) {
 }
 
 export async function checkStripeStatus(req, res) {
-  const seller = db.prepare('SELECT * FROM sellers WHERE user_id = ?').get(req.user.sub);
+  const seller = await queryOne('SELECT * FROM sellers WHERE user_id = $1', [req.user.sub]);
   if (!seller) return res.status(404).json({ error: 'Seller account not found' });
   if (!seller.stripe_account_id) return res.json({ data: { onboarded: false } });
 
@@ -134,33 +144,40 @@ export async function checkStripeStatus(req, res) {
   const onboarded = account.details_submitted && account.charges_enabled;
 
   if (onboarded && !seller.stripe_onboarded) {
-    db.prepare("UPDATE sellers SET stripe_onboarded = 1, updated_at = datetime('now') WHERE id = ?")
-      .run(seller.id);
+    await query(
+      "UPDATE sellers SET stripe_onboarded = 1, updated_at = NOW() WHERE id = $1",
+      [seller.id]
+    );
   }
 
   res.json({ data: { onboarded, charges_enabled: account.charges_enabled, details_submitted: account.details_submitted } });
 }
 
-export function followSeller(req, res) {
-  const seller = db.prepare('SELECT id FROM sellers WHERE id = ?').get(req.params.id);
+export async function followSeller(req, res) {
+  const seller = await queryOne('SELECT id FROM sellers WHERE id = $1', [req.params.id]);
   if (!seller) return res.status(404).json({ error: 'Seller not found' });
 
-  db.prepare('INSERT OR IGNORE INTO follows (buyer_id, seller_id) VALUES (?, ?)').run(req.user.sub, req.params.id);
+  await query(
+    'INSERT INTO follows (buyer_id, seller_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [req.user.sub, req.params.id]
+  );
   res.json({ data: { following: true } });
 }
 
-export function unfollowSeller(req, res) {
-  db.prepare('DELETE FROM follows WHERE buyer_id = ? AND seller_id = ?').run(req.user.sub, req.params.id);
+export async function unfollowSeller(req, res) {
+  await query(
+    'DELETE FROM follows WHERE buyer_id = $1 AND seller_id = $2',
+    [req.user.sub, req.params.id]
+  );
   res.json({ data: { following: false } });
 }
 
-export function getSellerReviews(req, res) {
-  const reviews = db.prepare(`
-    SELECT r.*, u.first_name, u.last_name, u.avatar_url
-    FROM reviews r JOIN users u ON u.id = r.buyer_id
-    WHERE r.seller_id = ?
-    ORDER BY r.created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(req.params.id, Number(req.query.limit || 20), Number(req.query.offset || 0));
+export async function getSellerReviews(req, res) {
+  const reviews = await query(
+    `SELECT r.*, u.first_name, u.last_name, u.avatar_url
+     FROM reviews r JOIN users u ON u.id = r.buyer_id
+     WHERE r.seller_id = $1 ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`,
+    [req.params.id, Number(req.query.limit || 20), Number(req.query.offset || 0)]
+  );
   res.json({ data: reviews });
 }
