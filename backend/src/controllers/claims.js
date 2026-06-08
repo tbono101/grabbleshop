@@ -92,6 +92,45 @@ export async function releaseClaim(req, res) {
   res.json({ data: { message: 'Claim released' } });
 }
 
+// Turn a pending claim into a confirmed sale: creates the order, order item
+// and payment, marks the claim confirmed and the listing sold. Must run inside
+// a transaction (the caller provides the client). Returns the created order.
+export async function settleClaim(client, claim, shippingAddressId = null) {
+  const { rows: [listing] } = await client.query('SELECT * FROM listings WHERE id = $1', [claim.listing_id]);
+
+  const orderId   = uuid();
+  const itemId    = uuid();
+  const paymentId = uuid();
+
+  const { rows: [ord] } = await client.query(
+    `INSERT INTO orders (id, buyer_id, seller_id, event_id, status, subtotal, total, shipping_address_id)
+     VALUES ($1, $2, $3, $4, 'pending_payment', $5, $6, $7) RETURNING *`,
+    [orderId, claim.buyer_id, listing.seller_id, claim.event_id, claim.price, claim.price, shippingAddressId || null]
+  );
+
+  await client.query(
+    `INSERT INTO order_items (id, order_id, listing_id, title, price, quantity)
+     VALUES ($1, $2, $3, $4, $5, 1)`,
+    [itemId, orderId, listing.id, listing.title, claim.price]
+  );
+
+  await client.query(
+    'INSERT INTO payments (id, order_id, buyer_id, amount) VALUES ($1, $2, $3, $4)',
+    [paymentId, orderId, claim.buyer_id, claim.price]
+  );
+
+  await client.query(
+    "UPDATE claims SET status = 'confirmed', updated_at = NOW() WHERE id = $1",
+    [claim.id]
+  );
+  await client.query(
+    "UPDATE listings SET status = 'sold', updated_at = NOW() WHERE id = $1",
+    [listing.id]
+  );
+
+  return ord;
+}
+
 export async function confirmClaim(req, res) {
   const { shippingAddressId } = req.body;
   const claim = await queryOne('SELECT * FROM claims WHERE id = $1', [req.params.id]);
@@ -104,40 +143,7 @@ export async function confirmClaim(req, res) {
   if (claim.status !== 'pending') return res.status(400).json({ error: 'Claim is not pending' });
   if (new Date(claim.expires_at) < new Date()) return res.status(400).json({ error: 'Claim has expired' });
 
-  const order = await withTransaction(async (client) => {
-    const orderId  = uuid();
-    const itemId   = uuid();
-    const paymentId = uuid();
-
-    const { rows: [ord] } = await client.query(
-      `INSERT INTO orders (id, buyer_id, seller_id, event_id, status, subtotal, total, shipping_address_id)
-       VALUES ($1, $2, $3, $4, 'pending_payment', $5, $6, $7) RETURNING *`,
-      [orderId, claim.buyer_id, seller.id, claim.event_id, claim.price, claim.price, shippingAddressId || null]
-    );
-
-    await client.query(
-      `INSERT INTO order_items (id, order_id, listing_id, title, price, quantity)
-       VALUES ($1, $2, $3, $4, $5, 1)`,
-      [itemId, orderId, listing.id, listing.title, claim.price]
-    );
-
-    await client.query(
-      'INSERT INTO payments (id, order_id, buyer_id, amount) VALUES ($1, $2, $3, $4)',
-      [paymentId, orderId, claim.buyer_id, claim.price]
-    );
-
-    await client.query(
-      "UPDATE claims SET status = 'confirmed', updated_at = NOW() WHERE id = $1",
-      [claim.id]
-    );
-    await client.query(
-      "UPDATE listings SET status = 'sold', updated_at = NOW() WHERE id = $1",
-      [listing.id]
-    );
-
-    return ord;
-  });
-
+  const order = await withTransaction((client) => settleClaim(client, claim, shippingAddressId));
   res.status(201).json({ data: order });
 }
 

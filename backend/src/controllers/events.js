@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
-import { query, queryOne } from '../models/db.js';
+import { query, queryOne, withTransaction } from '../models/db.js';
+import { settleClaim } from './claims.js';
 
 async function getSellerByUser(userId) {
   return queryOne('SELECT * FROM sellers WHERE user_id = $1', [userId]);
@@ -128,15 +129,23 @@ export async function endEvent(req, res) {
   if (!seller || event.seller_id !== seller.id) return res.status(403).json({ error: 'Forbidden' });
   if (event.status !== 'live') return res.status(400).json({ error: 'Event is not live' });
 
-  const updated = await queryOne(
-    "UPDATE events SET status = 'ended', ended_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *",
-    [event.id]
-  );
+  const updated = await withTransaction(async (client) => {
+    // Auto-confirm every outstanding grab into a sale before closing, so each
+    // claimed item lands on the buyer's invoice.
+    const { rows: pending } = await client.query(
+      "SELECT * FROM claims WHERE event_id = $1 AND status = 'pending' ORDER BY created_at ASC",
+      [event.id]
+    );
+    for (const claim of pending) {
+      await settleClaim(client, claim);
+    }
 
-  await query(
-    "UPDATE claims SET status = 'released', updated_at = NOW() WHERE event_id = $1 AND status = 'pending'",
-    [event.id]
-  );
+    const { rows: [ev] } = await client.query(
+      "UPDATE events SET status = 'ended', ended_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *",
+      [event.id]
+    );
+    return ev;
+  });
 
   res.json({ data: updated });
 }

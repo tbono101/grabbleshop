@@ -146,7 +146,7 @@ export default function DashboardHostPage() {
             <Button variant="primary" loading={busy === 'golive'} onClick={goLive}>● Go Live</Button>
           )}
           {isLive && (
-            <Button variant="danger" loading={busy === 'end'} onClick={() => { if (confirm('End this sale? Active and unsold items will close.')) endSale(); }}>
+            <Button variant="danger" loading={busy === 'end'} onClick={() => { if (confirm('End this sale? All outstanding grabs will be confirmed as sales and invoiced.')) endSale(); }}>
               End Sale
             </Button>
           )}
